@@ -1,66 +1,82 @@
+// src/components/SearchBox.jsx
 import React, { useState, useEffect } from 'react';
 import { Input, Button, Card } from '@/components/ui';
 
-export default function SearchBox({ onSuggestions, onSearchResults }) {
+export default function SearchBox({ onCitySelect }) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
-  const [suggestions, setLocalSuggestions] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
 
   useEffect(() => {
-    if (!query) { setOpen(false); return; }
+    if (!query) {
+      setOpen(false);
+      return;
+    }
     const timer = setTimeout(async () => {
-      let mcd = [];
       try {
-        const r = await fetch(`/api/mcdonalds?query=${encodeURIComponent(query)}`);
-        mcd = r.ok ? await r.json() : [];
-      } catch (e) { console.error(e); }
+        // Appel direct à l'API Nominatim (sans proxy) et limité à la France
+        const url = new URL('https://nominatim.openstreetmap.org/search');
+        url.searchParams.set('format', 'json');
+        url.searchParams.set('addressdetails', '1');
+        url.searchParams.set('limit', '5');
+        url.searchParams.set('countrycodes', 'fr');
+        url.searchParams.set('q', query);
 
-      let nom = [];
-      try {
-        const r = await fetch(
-          `/nominatim/search?format=json&addressdetails=1&limit=10&q=${encodeURIComponent(query)}`
+        const res = await fetch(url.toString(), {
+          headers: { 'Accept-Language': 'fr' }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        setSuggestions(
+          data.map(item => ({
+            name: item.display_name,
+            lat: item.lat,
+            lng: item.lon,
+            bbox: item.boundingbox
+          }))
         );
-        const data = r.ok ? await r.json() : [];
-        nom = data.map(item => ({
-          name: item.display_name,
-          address: item.display_name,
-          lat: parseFloat(item.lat),
-          lng: parseFloat(item.lon)
-        }));
-      } catch (e) { console.error(e); }
-
-      const all = [...mcd, ...nom];
-      setLocalSuggestions(all);
-      onSuggestions(all);
-      setOpen(true);
+        setOpen(true);
+      } catch (err) {
+        console.error('Recherche Nominatim erreur :', err);
+      }
     }, 300);
-    return () => clearTimeout(timer);
-  }, [query, onSuggestions]);
 
-  function handleSelect(place) {
-    setQuery(place.name);
+    return () => clearTimeout(timer);
+  }, [query]);
+
+  function handleSelect(city) {
+    setQuery(city.name);
     setOpen(false);
-    onSearchResults([place]);
+    onCitySelect(city);
   }
 
   return (
     <div className="relative">
-      <Input
-        value={query}
-        placeholder="Rechercher un restaurant"
-        onChange={e=>setQuery(e.target.value)}
-        onFocus={()=>query&&setOpen(true)}
-      />
-      <Button onClick={()=>onSearchResults(suggestions)}>🔍</Button>
-      {open && suggestions.length>0 && (
-        <Card className="absolute mt-1 w-full max-h-60 overflow-auto z-20">
-          {suggestions.map((s,i)=>(
+      <div className="flex bg-white rounded-lg shadow-md overflow-hidden">
+        <Input
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          placeholder="Rechercher une ville (France)"
+          className="flex-grow px-4 py-3 text-base placeholder-gray-500 focus:outline-none"
+        />
+        <Button
+          onClick={() => handleSelect({ name: query, lat: null, lng: null, bbox: [] })}
+          className="px-4 bg-yellow-400 hover:bg-yellow-500"
+        >
+          🔍
+        </Button>
+      </div>
+
+      {open && suggestions.length > 0 && (
+        <Card className="absolute mt-1 w-full bg-white rounded-b-lg shadow-lg z-20">
+          {suggestions.map((city, i) => (
             <div
               key={i}
-              className="p-2 hover:bg-gray-100 cursor-pointer"
-              onClick={()=>handleSelect(s)}
+              onClick={() => handleSelect(city)}
+              className="px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm"
             >
-              {s.name}, {s.address}
+              {city.name}
             </div>
           ))}
         </Card>
