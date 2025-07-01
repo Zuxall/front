@@ -1,0 +1,8 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* La surcouche gesture-handling ne cache plus la searchbar */
+.leaflet-gesture-handling {
+  z-index: 0 !important;
+}
