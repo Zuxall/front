@@ -4,7 +4,7 @@ import SearchBox from './components/SearchBox';
 import ResultsOverlay from './components/ResultsOverlay';
 import SelectedInfo from './components/SelectedInfo';
 
-/** Recentre la carte à chaque changement de center */
+/** Recentre la carte dès que center change */
 function Recenter({ center }) {
   const map = useMap();
   React.useEffect(() => {
@@ -18,9 +18,8 @@ export default function App() {
   const [restaurants, setRestaurants] = React.useState([]);
   const [selected, setSelected] = React.useState(null);
 
-  /** Appelé par SearchBox */
+  /** Lorsqu’on sélectionne une ville, on récupère les McDo via Overpass */
   const handleCitySelect = async city => {
-    console.log('App.handleCitySelect ←', city);
     if (!city.bbox || city.bbox.length !== 4) return;
     const [south, north, west, east] = city.bbox.map(Number);
 
@@ -39,24 +38,19 @@ export default function App() {
     try {
       const res  = await fetch('https://overpass-api.de/api/interpreter', {
         method: 'POST',
-        body: overpassQ,
+        body: overpassQ
       });
       const json = await res.json();
       const nodes = json.elements.map(el => {
         const lat = el.lat ?? el.center?.lat;
         const lng = el.lon ?? el.center?.lon;
         return {
-          name: el.tags?.name || "McDonald's",
-          address: [
-            el.tags?.['addr:street'],
-            el.tags?.['addr:housenumber'],
-            el.tags?.['addr:city']
-          ].filter(Boolean).join(', '),
           lat: parseFloat(lat),
           lng: parseFloat(lng),
+          // on stocke les tags OSM au cas où
+          osmTags: el.tags || {}
         };
       });
-      console.log('McDo récupérés →', nodes);
       setRestaurants(nodes);
     } catch (err) {
       console.error('Overpass API error:', err);
@@ -64,10 +58,32 @@ export default function App() {
     }
   };
 
-  /** Appelé par ResultsOverlay */
-  const handleMarkerSelect = place => {
-    console.log('App.handleMarkerSelect ←', place);
-    setSelected(place);
+  /** Au clic sur un marqueur, on reverse‑geocode pour récupérer display_name */
+  const handleMarkerSelect = async place => {
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1` +
+          `&lat=${place.lat}&lon=${place.lng}`,
+        { headers: { 'Accept-Language': 'fr' } }
+      );
+      if (!res.ok) throw new Error(res.statusText);
+      const data = await res.json();
+      setSelected({
+        name: data.name || place.osmTags.name || "McDonald's",
+        address: data.display_name
+      });
+    } catch (e) {
+      console.error('Reverse geocode error:', e);
+      // fallback minimal
+      setSelected({
+        name: place.osmTags.name || "McDonald's",
+        address: [
+          place.osmTags['addr:street'],
+          place.osmTags['addr:housenumber'],
+          place.osmTags['addr:city']
+        ].filter(Boolean).join(', ')
+      });
+    }
   };
 
   return (
@@ -91,10 +107,7 @@ export default function App() {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution="© OpenStreetMap contributors"
         />
-        <ResultsOverlay
-          results={restaurants}
-          onSelect={handleMarkerSelect}
-        />
+        <ResultsOverlay results={restaurants} onSelect={handleMarkerSelect} />
       </MapContainer>
 
       {/* Panneau détail McDo sélectionné */}
